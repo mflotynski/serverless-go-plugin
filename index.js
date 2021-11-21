@@ -13,11 +13,13 @@ const ConfigDefaults = {
   baseDir: ".",
   binDir: ".bin",
   cgo: 0,
-  cmd: 'GOOS=linux go build -ldflags="-s -w"',
+  arm64: false,
+  cmd: "GOOS=linux go build -ldflags=\"-s -w\""
 };
 
 const GoRuntime = "go1.x";
 const ProvidedRuntime = "provided";
+const ProvidedRuntimeV2 = "provided.al2";
 
 module.exports = class Plugin {
   constructor(serverless, options) {
@@ -27,13 +29,13 @@ module.exports = class Plugin {
 
     this.hooks = {
       "before:deploy:function:packageFunction": this.compileFunction.bind(this),
-      "before:package:createDeploymentArtifacts": () => this.serverless.pluginManager.run(['go', 'build']),
+      "before:package:createDeploymentArtifacts": () => this.serverless.pluginManager.run(["go", "build"]),
       // Because of https://github.com/serverless/serverless/blob/master/lib/plugins/aws/invokeLocal/index.js#L361
       // plugin needs to compile a function and then ignore packaging.
       "before:invoke:local:invoke": this.compileFunctionAndIgnorePackage.bind(
         this
       ),
-      "go:build:build": this.compileFunctions.bind(this),
+      "go:build:build": this.compileFunctions.bind(this)
     };
 
     this.commands = {
@@ -43,10 +45,10 @@ module.exports = class Plugin {
         commands: {
           build: {
             usage: "Build all Go functions",
-            lifecycleEvents: ["build"],
-          },
-        },
-      },
+            lifecycleEvents: ["build"]
+          }
+        }
+      }
     };
   }
 
@@ -108,7 +110,7 @@ module.exports = class Plugin {
     await zip.writeZipPromise(outPath, {});
 
     this.serverless.service.functions[name].package = {
-      artifact: outPath,
+      artifact: outPath
     };
   }
 
@@ -116,7 +118,7 @@ module.exports = class Plugin {
     const packageConfig = {
       individually: true,
       exclude: [`./**`],
-      include: [binPath],
+      include: [binPath]
     };
     if (this.serverless.service.functions[name].package) {
       packageConfig.include = packageConfig.include.concat(
@@ -148,7 +150,9 @@ module.exports = class Plugin {
 
     const runtime = func.runtime || this.serverless.service.provider.runtime;
     const goCustomRuntime = func.goCustomRuntime || config.goCustomRuntime;
-    const isGoRuntimeProvided = runtime === ProvidedRuntime && goCustomRuntime;
+    const isGoRuntimeProvided =
+      (runtime === ProvidedRuntime || runtime === ProvidedRuntimeV2) &&
+      goCustomRuntime;
     if (!isGoRuntimeProvided && runtime !== GoRuntime) {
       return;
     }
@@ -159,8 +163,11 @@ module.exports = class Plugin {
       goCustomRuntime
     );
     try {
+      const funcArch =
+        func.architecture || this.serverless.service.provider.architecture;
+      const buildArch = funcArch === "arm64" ? "GOARCH=arm64" : "";
       const [env, command] = parseCommand(
-        `${config.cmd} -o ${compileBinPath} ${func.handler}`
+        `${buildArch} ${config.cmd} -o ${compileBinPath} ${func.handler}`
       );
       await exec(command, {
         cwd: config.baseDir,
@@ -169,7 +176,7 @@ module.exports = class Plugin {
           process.env,
           { CGO_ENABLED: config.cgo.toString() },
           env
-        ),
+        )
       });
     } catch (e) {
       this.serverless.cli.consoleLog(
